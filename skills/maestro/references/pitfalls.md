@@ -25,6 +25,27 @@
 **対処**: 付けない。「毎回同じパスに置きたい」なら、実行後に最新の世代ディレクトリを
 symlink するなり、`ls -dt <DIR>/*/ | head -1` で拾うなりする。
 
+## `check-syntax` はディレクトリを受け取らない
+
+**症状**: `maestro check-syntax <dir>` がスタックトレースを吐いて落ちる。
+
+```text
+/path/to/e2e/flows (Is a directory)
+java.io.FileNotFoundException: /path/to/e2e/flows (Is a directory)
+	at maestro.cli.command.CheckSyntaxCommand.call(CheckSyntaxCommand.kt:29)
+```
+
+`maestro test` はディレクトリを受け取るので、同じ感覚で渡すと踏む。
+
+**対処**: ファイルごとに回す。
+
+```bash
+find e2e/flows -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 |
+  xargs -0 -n1 maestro check-syntax
+```
+
+不正な Flow に対しては**正しく非 0 を返す**ので、関門としては使える。
+
 ## `maestro start-device --platform android` は対話プロンプトを出す
 
 **症状**: フックの中から呼ぶと止まる、あるいは何もせず終わる。
