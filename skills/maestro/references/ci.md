@@ -1,5 +1,9 @@
 # CI に何を残すか
 
+> **ここで言う「リポジトリ」は、テストが走る対象＝アプリのリポジトリ**を指す。
+> スキルやツールを置いているリポジトリの話ではない。課金も self-hosted の可否も、
+> **E2E が実際に走るリポジトリの性質**で決まる。
+
 **ローカル関門に移す目的は「CI を無くすこと」ではない。** 手元は 1 台・1 バージョンでしか
 確かめられず、環境差を吸えない。**関門を手元に、追認を CI に**という二段構えにする。
 
@@ -35,9 +39,42 @@
 - `if:` で落とした job は **skipped になり課金されない**。トリガーではなく job の条件で切ると
   「必要なときだけ回す」を安く実現できる
 
-## self-hosted ランナーを public リポジトリで使わない
+## self-hosted ランナーを使うか
 
-課金は 0 になるが、**public リポジトリと組み合わせてはいけない。**
+課金は 0（public / private を問わない）。**モバイルの E2E とは相性がよい。**
+
+- macOS ランナーは included minutes を **10 倍**で消費する。iOS シミュレータの E2E を
+  丸ごと逃がせる
+- **1 台の Mac で Android エミュレータと iOS シミュレータの両方**を賄える
+- **実機を USB で繋いだままにできる。** GitHub-hosted では原理的に不可能
+- 通信は **outbound のみ**（GitHub へ long-poll する）。受信ポートを開けないので、
+  「LAN に何も晒さない」方針のネットワークとも両立する
+
+### 判断軸は public / private ではなく「誰が PR を開けるか」
+
+**ここを取り違えやすい。** self-hosted ランナーは、**workflow を起こせる人全員に、その
+マシンでの任意コード実行を許す**のと同じことになる。
+
+> "any user capable of invoking workflows has access to this environment"
+> — [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+
+そのうえで:
+
+| リポジトリ | PR を開けるのは | 判断 |
+| --- | --- | --- |
+| **public** | **誰でも** | **使わない** |
+| private / internal・**read 権限が自分だけ** | 自分だけ | 実質リスクなし。**有力な選択肢** |
+| private / internal・**他人にも read がある**（受託、複数人、org 全体） | **read 権限を持つ全員** | 慎重に。下の緩和策が要る |
+
+3 行目を見落とさないこと。GitHub は private でもこう書いている:
+
+> "be cautious when using self-hosted runners on **private or internal** repositories,
+> as **anyone who can fork the repository and open a pull request (generally those with
+> read access to the repository)** are able to compromise the self-hosted runner
+> environment, including gaining access to secrets and the `GITHUB_TOKEN`"
+> — [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+
+public について GitHub の推奨はもっと端的:
 
 > "We recommend that you only use self-hosted runners with **private** repositories.
 > This is because forks of your public repository can potentially run **dangerous code**
@@ -45,8 +82,25 @@
 > in a workflow."
 > — [Adding self-hosted runners](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners)
 
-fork から PR を投げるだけで、そのマシンで任意のコードが動く。**自宅や社内の共有機なら
-なおさら。** 共有機を使う場合は、そもそも自分の一存で決められるのかも確かめること。
+### 立てる前に確かめること
+
+- [ ] **そのマシンを自分の裁量で変更してよいか。** 共有機や、他人が管理する IaC の配下なら
+      承認が要る。「自宅にある」は「自分が管理者である」を意味しない
+- [ ] **Xcode と Android SDK が載るか。** 合わせて数十 GB。別用途（Docker サーバー等）と
+      同居させてよいかも含めて
+- [ ] **常時起動しているか。** ランナーが落ちていると job は失敗せず待ち続ける
+- [ ] **同時実行は 1 本になる。** 並列を前提にした workflow は詰まる
+- [ ] **secrets がそのマシンに降りる。** ジョブ間で残留させない
+
+### 緩和策
+
+- **ランナーを使い捨てにする。** ジョブごとに環境を捨てれば、前のジョブの残留物を
+  次のジョブが拾わない。GitHub は just-in-time (JIT) ランナーを案内している
+  （`./run.sh --jitconfig ${encoded_jit_config}`）
+- **外部からの PR に承認を要求する。** リポジトリ設定で、初めての貢献者の workflow は
+  write 権限者の承認を経てから走るようにできる
+- **`pull_request_target` を使わない。** fork のコードを checkout して実行しつつ secrets を
+  持つため、最も危険な組み合わせになる
 
 ## private リポジトリでの型
 
