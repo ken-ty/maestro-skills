@@ -61,11 +61,47 @@ Semantics(
 Icon(Icons.add, semanticLabel: 'add_button')
 ```
 
+### `ensureSemantics()` は Android でも要る
+
+> [!CAUTION]
+> **公式ドキュメントは「Flutter Web でのみ必要」と書いているが、実測では Android でも要る。**
+> 無いと、**最初の 1 画面だけ掴めて、その後アクセシビリティツリーが空になる**。
+> 「起動直後は動くのに、画面遷移した途端に何も見つからなくなる」という形で出る。
+
+```dart
+import 'package:flutter/semantics.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  SemanticsBinding.instance.ensureSemantics();   // これ
+  runApp(const MyApp());
+}
+```
+
+Flutter はアクセシビリティサービスが有効なときだけ semantics ツリーを作る。Maestro の
+Android ドライバは接続時に一時的に有効化するが、**そのまま維持されない**。
+`ensureSemantics()` は常時オンに固定する。
+
+実測（Flutter 3.41.2 / Android 14 エミュレータ / Maestro 2.8.0）:
+
+| | 遷移後の画面のツリー |
+| --- | --- |
+| `ensureSemantics()` **なし** | システム UI のみ。アプリの要素は **0 件** |
+| `ensureSemantics()` **あり** | アプリの要素が全部出る |
+
+**これはテスト専用の分岐ではない。** semantics を常時オンにするのは、スクリーンリーダー
+利用者に対しても正しい状態なので、本番ビルドに入れてよい。
+
+### Flutter のテキストは `text` ではなく `accessibilityText` に入る
+
+階層をダンプして `text` 属性だけを探すと「何も無い」と誤解する。Flutter の `Text` は
+**`accessibilityText`**（Android の `content-desc`）として出る。
+Maestro の `text` セレクタはこちらも見るので、Flow の書き方は変わらない。**階層を目で
+調べるときだけ注意する。**
+
 ### 制約
 
 - **Flutter Desktop は非対応**
-- **Flutter Web では `main()` に `SemanticsBinding.instance.ensureSemantics();` が要る。**
-  これが無いと要素を一切検出できない（モバイルでは不要）
 
 ---
 

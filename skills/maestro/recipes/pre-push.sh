@@ -68,8 +68,13 @@ need adb || exit 1
 
 # ─── まず構文だけ検査する（デバイス不要・数秒） ──────────────────────────
 # 壊れた Flow のためにエミュレータを起動して数分待つのは無駄なので、先に落とす。
-# check-syntax は不正なコマンドを見つけると非 0 で終わる。
-if ! maestro check-syntax "$FLOWS_DIR"; then
+# **check-syntax はファイルしか受け取らない。** ディレクトリを渡すと
+# FileNotFoundException でスタックトレースを吐く（pitfalls.md）。1 本ずつ回す。
+syntax_ng=0
+while IFS= read -r flow; do
+  maestro check-syntax "$flow" || syntax_ng=1
+done < <(find "$FLOWS_DIR" -type f \( -name '*.yaml' -o -name '*.yml' \))
+if [ "$syntax_ng" -ne 0 ]; then
   echo "device-gate: Flow の構文が不正です。上の指摘を直してください" >&2
   exit 1
 fi
