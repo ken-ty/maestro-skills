@@ -45,6 +45,36 @@ Semantics(
 
 **翻訳や A/B テストで文言が変わっても壊れない**ので、これを第一候補にする。
 
+**既存の `Key` は消さず、`Semantics` を外側に足す。** `Key` は widget テストが
+`find.byKey` で使っているので、置き換えるとそちらが壊れる。両立させる:
+
+```dart
+Semantics(
+  identifier: 'marker_${cell.x}_${cell.y}',
+  child: GestureDetector(
+    key: ValueKey(cell),          // widget テスト用。そのまま残す
+    onTap: () => onTap(cell),
+    child: ...,
+  ),
+)
+```
+
+**`identifier` の形式は Flow との契約**なので、widget テストで固定しておくとよい。
+変えたときに `flutter test` の時点で気づける（エミュレータが要らない）。
+
+```dart
+final ids = tester
+    .widgetList<Semantics>(find.byType(Semantics))
+    .map((s) => s.properties.identifier)
+    .whereType<String>()
+    .toSet();
+expect(ids, contains('marker_0_1'));
+```
+
+**振りすぎない。** レイアウト用の `Row` / `Column` / `Padding` に振ると木が太り、
+iOS のスナップショット深さ制限（60）に近づいて有害。**停止条件は「その Flow が
+通ること」であって、網羅率ではない。**
+
 ### テキストを持つウィジェットはそのまま掴める
 
 `Text` / `TextField` などは既定でセマンティクスを出すので、`text` セレクタが当たる。
@@ -61,12 +91,7 @@ Semantics(
 Icon(Icons.add, semanticLabel: 'add_button')
 ```
 
-### `ensureSemantics()` は Android でも要る
-
-> [!CAUTION]
-> **公式ドキュメントは「Flutter Web でのみ必要」と書いているが、実測では Android でも要る。**
-> 無いと、**最初の 1 画面だけ掴めて、その後アクセシビリティツリーが空になる**。
-> 「起動直後は動くのに、画面遷移した途端に何も見つからなくなる」という形で出る。
+### `ensureSemantics()` — 入れておく。ただし「Android で必ず要る」ではない
 
 ```dart
 import 'package:flutter/semantics.dart';
@@ -78,19 +103,34 @@ Future<void> main() async {
 }
 ```
 
-Flutter はアクセシビリティサービスが有効なときだけ semantics ツリーを作る。Maestro の
-Android ドライバは接続時に一時的に有効化するが、**そのまま維持されない**。
-`ensureSemantics()` は常時オンに固定する。
+Flutter は**アクセシビリティサービスが有効なときだけ** semantics ツリーを作る。
+`ensureSemantics()` はそれを常時オンに固定する。公式ドキュメントは
+「Flutter Web でのみ必要」と書いている。
 
-実測（Flutter 3.41.2 / Android 14 エミュレータ / Maestro 2.8.0）:
+> [!IMPORTANT]
+> **Android で要るかどうかは、実測が 2 回あって食い違っている。**
+> どちらの結果も消さずに残す。同じバージョンの組み合わせでも結果が割れているので、
+> 「必ず要る」とも「要らない」とも言えない。
 
-| | 遷移後の画面のツリー |
-| --- | --- |
-| `ensureSemantics()` **なし** | システム UI のみ。アプリの要素は **0 件** |
-| `ensureSemantics()` **あり** | アプリの要素が全部出る |
+| 実測 | 環境 | 結果 |
+| --- | --- | --- |
+| 2026-08-26 | Flutter 3.41.2 / Android 14 エミュ / Maestro 2.8.0 | **無いと遷移後のツリーが空**（アプリの要素 0 件、システム UI のみ） |
+| 2026-09-03 | 同上（別アプリ・別 Flow） | **無くても全ステップ通った**。対照ビルドの差し替えは APK 内 `kernel_blob.bin` の SHA-1 差で確認済み |
 
-**これはテスト専用の分岐ではない。** semantics を常時オンにするのは、スクリーンリーダー
-利用者に対しても正しい状態なので、本番ビルドに入れてよい。
+推測（未検証）: Maestro の Android ドライバは UiAutomator ベースで、UiAutomator は
+内部的に AccessibilityService として接続する。Flutter はその接続を検知すると
+自前で semantics を有効化するので、明示の `ensureSemantics()` が無くても掴める
+ことがある――という筋。**有効化のタイミングと `launchApp` の順序で結果が割れている
+可能性が高い**（アタッチ済みのドライバの下で起動した回は通った）。
+
+**実務上の結論: 入れておく。** 害が無く、要る回に効く。
+
+- semantics を常時オンにするのは**スクリーンリーダー利用者に対しても正しい状態**なので、
+  テスト専用の分岐ではない。本番ビルドに入れてよい
+- ただし**「掴めない ＝ これを入れれば直る」と決め打ちしない。** 入れても直らないときは
+  セレクタ側（`text` の全体マッチ、`Key` を使っていないか）を先に疑う
+- 逆に**これが入っているから大丈夫、とも言えない。** 通っている Flow の
+  合格条件がこれかどうかは、外した対照ビルドを 1 回作れば分かる
 
 ### Flutter のテキストは `text` ではなく `accessibilityText` に入る
 

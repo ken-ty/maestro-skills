@@ -70,10 +70,17 @@ maestro test login.yaml --udid "<deviceId>"
 - tapOn: "ログイン"          # △ 文言が変われば壊れる
 ```
 
+> [!WARNING]
+> **`tapOn` は要素の中心を叩く。中心が当たり判定の外にある要素では、
+> 「タップ成功」と表示されたまま何も起きない。** 落ちるのは数手先の
+> `assertVisible` なので原因が見えにくい。親からはみ出して描画されている
+> 要素（`Stack` + `Clip.none` など）で踏む → `references/pitfalls.md`
+
 識別子をどう仕込むかは**フレームワークごとに違う** → `references/platforms.md`。
-**Flutter は先にそこを読むこと** — `Key` が見えないことに加え、`main()` に
-`SemanticsBinding.instance.ensureSemantics();` が無いと**最初の 1 画面しか掴めない**
-（公式ドキュメントは Web のみ必要と書いているが、Android でも要る）。
+**Flutter は先にそこを読むこと** — `Key` はアクセシビリティ層に出ないので
+Maestro からは原理的に見えない。加えて `main()` の
+`SemanticsBinding.instance.ensureSemantics();` を検討する（**要る環境と要らない
+環境がある。** 実測が食い違っている → `references/platforms.md`）。
 
 ### 2. `text` は部分一致ではない
 
@@ -153,8 +160,16 @@ maestro list-devices # 作成可能なデバイス一覧
 
 ### Step 2: まず構文だけ検査する（デバイス不要）
 
+> [!WARNING]
+> **`check-syntax` はディレクトリを受け取らない。ファイルを 1 つずつ渡す。**
+> `maestro test` はディレクトリを取るので、同じ感覚で渡すと
+> `FileNotFoundException (Is a directory)` で落ちる。まとめ渡し（`xargs` の
+> 既定や `find -exec {} +`）も `Unmatched argument at index 2` で落ちる —
+> **引数はちょうど 1 ファイル。** → `references/pitfalls.md`
+
 ```bash
-maestro check-syntax <flowsディレクトリ>
+find e2e/flows -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 |
+  xargs -0 -n1 maestro check-syntax
 ```
 
 **数秒で終わり、デバイスが要らない。不正なコマンドがあれば非 0 で終わる。**
